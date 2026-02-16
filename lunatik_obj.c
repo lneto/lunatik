@@ -56,6 +56,10 @@ lunatik_object_t **lunatik_checkpobject(lua_State *L, int ix)
 
 	luaL_argcheck(L, class != NULL, ix, "object expected");
 	pobject = (lunatik_object_t **)lua_touserdata(L, ix);
+	lua_getiuservalue(L, ix, 1);
+	if (lua_touserdata(L, -1) != class)
+		luaL_argerror(L, ix, "invalid object type");
+	lua_pop(L, 1);
 	lunatik_argchecknull(L, *pobject, ix);
 	return pobject;
 }
