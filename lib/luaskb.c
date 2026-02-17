@@ -43,14 +43,13 @@ static const lunatik_class_t luaskb_class = {
 	.methods = luaskb_mt,
 	.release = luaskb_release,
 	.pointer = true,
+	.shared = true,
 };
 
 int luaskb_reset(lunatik_object_t *object, void *ptr)
 {
-	lunatik_lock(object);
 	if (object != NULL)
 		object->private = (void*)ptr;
-	lunatik_unlock(object);
 	return 0;
 }
 EXPORT_SYMBOL(luaskb_reset);
