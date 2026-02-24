@@ -34,7 +34,7 @@
 #define LUARCU_MAXKEY	(LUAL_BUFFERSIZE)
 
 typedef struct luarcu_entry_s {
-	lunatik_object_t *object;
+	lunatik_value_t value;
 	struct hlist_node hlist;
 	struct rcu_head rcu;
 	char key[];
@@ -96,9 +96,6 @@ typedef struct luarcu_table_s {
 			pos && ({ n = luarcu_entry(hlist_next_rcu(&(pos)->hlist), pos); 1; });	\
 			pos = n)
 
-#define luarcu_checkoptnil(L, i, checkopt, ...) \
-	(lua_type((L), (i)) == LUA_TNIL ? NULL : checkopt((L), (i), ## __VA_ARGS__))
-
 static int luarcu_table(lua_State *L);
 
 static inline luarcu_entry_t *luarcu_lookup(luarcu_table_t *table, unsigned int index,
@@ -112,7 +109,7 @@ static inline luarcu_entry_t *luarcu_lookup(luarcu_table_t *table, unsigned int 
 	return NULL;
 }
 
-static luarcu_entry_t *luarcu_newentry(const char *key, size_t keylen, lunatik_object_t *object)
+static luarcu_entry_t *luarcu_newentry(const char *key, size_t keylen, lunatik_value_t *value)
 {
 	luarcu_entry_t *entry;
 
@@ -121,46 +118,49 @@ static luarcu_entry_t *luarcu_newentry(const char *key, size_t keylen, lunatik_o
 
 	strncpy(entry->key, key, keylen);
 	entry->key[keylen] = '\0';
-	entry->object = object;
-	lunatik_getobject(object);
+	entry->value = *value;
+	if (lunatik_isuserdata(value))
+		lunatik_getobject(value->object);
 	return entry;
 }
 
 static inline void luarcu_free(luarcu_entry_t *entry)
 {
-	lunatik_putobject(entry->object);
+	if (lunatik_isuserdata(&entry->value))
+		lunatik_putobject(entry->value.object);
 	kfree_rcu(entry, rcu);
 }
 
 LUNATIK_OBJECTCHECKER(luarcu_checktable, luarcu_table_t *);
 
-static int luarcu_cloneobject(lua_State *L)
+static int luarcu_pushvalue(lua_State *L)
 {
-	lunatik_object_t *object = (lunatik_object_t *)lua_touserdata(L, 1);
-	lunatik_cloneobject(L, object);
+	lunatik_value_t *value = (lunatik_value_t *)lua_touserdata(L, 1);
+	lunatik_pushvalue(L, value);
 	return 1;
 }
 
-lunatik_object_t *luarcu_gettable(lunatik_object_t *table, const char *key, size_t keylen)
+void luarcu_getvalue(lunatik_object_t *table, const char *key, size_t keylen, lunatik_value_t *value)
 {
 	luarcu_table_t *_table = (luarcu_table_t *)table->private;
 	unsigned int index = luarcu_hash(_table, key, keylen);
-	lunatik_object_t *value = NULL;
 	luarcu_entry_t *entry;
 
 	rcu_read_lock();
 	entry = luarcu_lookup(_table, index, key, keylen);
 	if (entry != NULL) {
 		/* entry might be released after rcu_read_unlock */
-		value = entry->object; /* thus we need to store object pointer */
-		lunatik_getobject(value);
+		*value = entry->value; /* thus we need to copy the value */
+		if (lunatik_isuserdata(value))
+			lunatik_getobject(value->object);
 	}
+	else
+		value->type = LUA_TNIL;
 	rcu_read_unlock();
-	return value;
 }
-EXPORT_SYMBOL(luarcu_gettable);
+EXPORT_SYMBOL(luarcu_getvalue);
 
-int luarcu_settable(lunatik_object_t *table, const char *key, size_t keylen, lunatik_object_t *object)
+int luarcu_setvalue(lunatik_object_t *table, const char *key, size_t keylen, lunatik_value_t *value)
 {
 	int ret = 0;
 	luarcu_table_t *tab = (luarcu_table_t *)table->private;
@@ -171,8 +171,8 @@ int luarcu_settable(lunatik_object_t *table, const char *key, size_t keylen, lun
 	rcu_read_lock();
 	old = luarcu_lookup(tab, index, key, keylen);
 	rcu_read_unlock();
-	if (object) {
-		luarcu_entry_t *new = luarcu_newentry(key, keylen, object);
+	if (value->type != LUA_TNIL) {
+		luarcu_entry_t *new = luarcu_newentry(key, keylen, value);
 		if (new == NULL) {
 			ret = -ENOMEM;
 			goto unlock;
@@ -193,7 +193,7 @@ unlock:
 	lunatik_unlock(table);
 	return ret;
 }
-EXPORT_SYMBOL(luarcu_settable);
+EXPORT_SYMBOL(luarcu_setvalue);
 
 /***
 * Retrieves a value (a Lunatik object) from the RCU table.
@@ -215,17 +215,15 @@ static int luarcu_index(lua_State *L)
 	lunatik_object_t *table = lunatik_checkobject(L, 1);
 	size_t keylen;
 	const char *key = luaL_checklstring(L, 2, &keylen);
-	lunatik_object_t *value = luarcu_gettable(table, key, keylen);
+	lunatik_value_t value;
 
-	if (value == NULL)
-		lua_pushnil(L);
-	else {
-		lua_pushcfunction(L, luarcu_cloneobject);
-		lua_pushlightuserdata(L, value);
-		if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-			lunatik_putobject(value);
-			lua_error(L);
-		}
+	luarcu_getvalue(table, key, keylen, &value);
+	lua_pushcfunction(L, luarcu_pushvalue);
+	lua_pushlightuserdata(L, &value);
+	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+		if (lunatik_isuserdata(&value))
+			lunatik_putobject(value.object);
+		lua_error(L);
 	}
 	return 1; /* value */
 }
@@ -250,9 +248,10 @@ static int luarcu_newindex(lua_State *L)
 	lunatik_object_t *table = lunatik_checkobject(L, 1);
 	size_t keylen;
 	const char *key = luaL_checklstring(L, 2, &keylen);
-	lunatik_object_t *object = luarcu_checkoptnil(L, 3, lunatik_checkobject);
 
-	if (luarcu_settable(table, key, keylen, object) < 0)
+	lunatik_value_t value;
+	lunatik_checkvalue(L, 3, &value);
+	if (luarcu_setvalue(table, key, keylen, &value) < 0)
 		luaL_error(L, "not enough memory");
 	return 0;
 }
@@ -341,7 +340,7 @@ static int luarcu_map(lua_State *L)
 
 		strncpy(key, entry->key, LUARCU_MAXKEY);
 		key[LUARCU_MAXKEY - 1] = '\0';
-		lunatik_object_t *value = entry->object;
+		lunatik_object_t *value = entry->value.object;
 		lunatik_getobject(value);
 
 		rcu_read_unlock();
@@ -439,5 +438,5 @@ static void __exit luarcu_exit(void)
 module_init(luarcu_init);
 module_exit(luarcu_exit);
 MODULE_LICENSE("Dual MIT/GPL");
-MODULE_AUTHOR("Lourival Vieira Neto <lourival.neto@ring-0.io>");
+MODULE_AUTHOR("Lourival Vieira Neto <lourival.neto@ringzero.com.br>");
 
