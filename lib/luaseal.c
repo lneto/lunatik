@@ -4,12 +4,12 @@
 */
 
 /***
-* Encrypted Lua script loader using AES-256-GCM.
+* Encrypted Lua script loader.
 *
 * This module provides a single function to decrypt and execute
-* encrypted Lua scripts. Scripts are encrypted with AES-256-GCM
-* (authenticated encryption) using a runtime-configured key stored
-* in `lunatik._ENV`.
+* encrypted Lua scripts using authenticated encryption (AEAD).
+* The algorithm is stored in the key blob; the default is AES-256-GCM.
+* Keys are runtime-configured via `lunatik._ENV`.
 *
 * @module seal
 */
@@ -41,9 +41,11 @@ typedef struct luaseal_data_s {
 /***
 * Decrypts and executes an encrypted Lua script.
 *
-* The key and nonce are looked up from `lunatik._ENV[name]` where
-* `name` is the script name passed as the second argument. The _ENV
-* entry must be a 44-byte `data` object: key (32 bytes) + nonce (12 bytes).
+* The key, nonce, and algorithm are looked up from `lunatik._ENV[name]`
+* where `name` is the script name passed as the second argument. The _ENV
+* entry must be a `data` object: key (32 bytes) + nonce (12 bytes) +
+* optional algorithm name (null-terminated). If absent, defaults to
+* "gcm(aes)".
 *
 * @function run
 * @tparam string ciphertext The encrypted script with appended GCM tag.
@@ -70,6 +72,7 @@ static int luaseal_run(lua_State *L)
 	char *buf;
 	u8 key[LUASEAL_KEYSIZE];
 	u8 iv[LUASEAL_NONCESIZE];
+	char algo[CRYPTO_MAX_ALG_NAME];
 	int ret;
 
 	luaL_argcheck(L, len > LUASEAL_AUTHSIZE, 1, "ciphertext too short");
@@ -88,10 +91,19 @@ static int luaseal_run(lua_State *L)
 	}
 	memcpy(key, (u8 *)data->ptr + data->offset, LUASEAL_KEYSIZE);
 	memcpy(iv, (u8 *)data->ptr + data->offset + LUASEAL_KEYSIZE, LUASEAL_NONCESIZE);
+	if (data->size > LUASEAL_BLOBSIZE) {
+		size_t algolen = data->size - LUASEAL_BLOBSIZE;
+		if (algolen >= CRYPTO_MAX_ALG_NAME)
+			algolen = CRYPTO_MAX_ALG_NAME - 1;
+		memcpy(algo, (u8 *)data->ptr + data->offset + LUASEAL_BLOBSIZE, algolen);
+		algo[algolen] = '\0';
+	}
+	else
+		strscpy(algo, LUASEAL_ALGO, sizeof(algo));
 	lunatik_unlock(obj);
 	lunatik_putobject(obj);
 
-	tfm = crypto_alloc_aead(LUASEAL_ALGO, 0, 0);
+	tfm = crypto_alloc_aead(algo, 0, 0);
 	if (IS_ERR(tfm))
 		return luaL_error(L, "failed to allocate aead transform (%ld)",
 				  PTR_ERR(tfm));
