@@ -24,11 +24,11 @@
 
 #include "luarcu.h"
 
-#define SEAL_KEYSIZE	32
-#define SEAL_NONCESIZE	12
-#define SEAL_BLOBSIZE	(SEAL_KEYSIZE + SEAL_NONCESIZE)
-#define SEAL_AUTHSIZE	16
-#define SEAL_ALGO	"gcm(aes)"
+#define LUASEAL_KEYSIZE	32
+#define LUASEAL_NONCESIZE	12
+#define LUASEAL_BLOBSIZE	(LUASEAL_KEYSIZE + LUASEAL_NONCESIZE)
+#define LUASEAL_AUTHSIZE	16
+#define LUASEAL_ALGO	"gcm(aes)"
 
 /* mirrors luadata_t from luadata.c */
 typedef struct luaseal_data_s {
@@ -68,11 +68,11 @@ static int luaseal_run(lua_State *L)
 	struct aead_request *req;
 	struct scatterlist sg;
 	char *buf;
-	u8 key[SEAL_KEYSIZE];
-	u8 iv[SEAL_NONCESIZE];
+	u8 key[LUASEAL_KEYSIZE];
+	u8 iv[LUASEAL_NONCESIZE];
 	int ret;
 
-	luaL_argcheck(L, len > SEAL_AUTHSIZE, 1, "ciphertext too short");
+	luaL_argcheck(L, len > LUASEAL_AUTHSIZE, 1, "ciphertext too short");
 
 	/* look up key+nonce blob from lunatik._ENV[name] */
 	obj = luarcu_gettable(lunatik_env, name, namelen);
@@ -81,28 +81,28 @@ static int luaseal_run(lua_State *L)
 
 	lunatik_lock(obj);
 	data = (luaseal_data_t *)obj->private;
-	if (data == NULL || data->size < SEAL_BLOBSIZE) {
+	if (data == NULL || data->size < LUASEAL_BLOBSIZE) {
 		lunatik_unlock(obj);
 		lunatik_putobject(obj);
 		return luaL_error(L, "invalid key blob in _ENV['%s']", name);
 	}
-	memcpy(key, (u8 *)data->ptr + data->offset, SEAL_KEYSIZE);
-	memcpy(iv, (u8 *)data->ptr + data->offset + SEAL_KEYSIZE, SEAL_NONCESIZE);
+	memcpy(key, (u8 *)data->ptr + data->offset, LUASEAL_KEYSIZE);
+	memcpy(iv, (u8 *)data->ptr + data->offset + LUASEAL_KEYSIZE, LUASEAL_NONCESIZE);
 	lunatik_unlock(obj);
 	lunatik_putobject(obj);
 
-	tfm = crypto_alloc_aead(SEAL_ALGO, 0, 0);
+	tfm = crypto_alloc_aead(LUASEAL_ALGO, 0, 0);
 	if (IS_ERR(tfm))
 		return luaL_error(L, "failed to allocate aead transform (%ld)",
 				  PTR_ERR(tfm));
 
-	ret = crypto_aead_setkey(tfm, key, SEAL_KEYSIZE);
+	ret = crypto_aead_setkey(tfm, key, LUASEAL_KEYSIZE);
 	if (ret < 0) {
 		crypto_free_aead(tfm);
 		return luaL_error(L, "failed to set key (%d)", ret);
 	}
 
-	ret = crypto_aead_setauthsize(tfm, SEAL_AUTHSIZE);
+	ret = crypto_aead_setauthsize(tfm, LUASEAL_AUTHSIZE);
 	if (ret < 0) {
 		crypto_free_aead(tfm);
 		return luaL_error(L, "failed to set authsize (%d)", ret);
@@ -137,8 +137,8 @@ static int luaseal_run(lua_State *L)
 		return luaL_error(L, "decryption failed (%d)", ret);
 	}
 
-	/* plaintext is in buf[0 .. len - SEAL_AUTHSIZE) */
-	ret = luaL_loadbuffer(L, buf, len - SEAL_AUTHSIZE, "=sealed");
+	/* plaintext is in buf[0 .. len - LUASEAL_AUTHSIZE) */
+	ret = luaL_loadbuffer(L, buf, len - LUASEAL_AUTHSIZE, "=sealed");
 	lunatik_free(buf);
 
 	if (ret != LUA_OK)
