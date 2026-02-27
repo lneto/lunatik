@@ -43,6 +43,9 @@ static int luadata_lnew(lua_State *L);
 
 LUNATIK_PRIVATECHECKER(luadata_check, luadata_t *);
 
+#define luadata_inbounds(data, offset, length) \
+	((offset) >= 0 && (length) > 0 && (offset) + (length) <= (data)->size)
+
 /***
  * Bounds-checked pointer calculation. Returns pointer on success, raises Lua error on failure.
  * @param L Lua state
@@ -54,8 +57,7 @@ LUNATIK_PRIVATECHECKER(luadata_check, luadata_t *);
  */
 static inline void *luadata_checkbounds(lua_State *L, int ix, luadata_t *data, lua_Integer offset, lua_Integer length)
 {
-	int bounds = offset >= 0 && length > 0 && offset + length <= data->size;
-	luaL_argcheck(L, bounds, ix, "out of bounds");
+	luaL_argcheck(L, luadata_inbounds(data, offset, length), ix, "out of bounds");
 	return (LUADATA_TOPTR(data) + offset);
 }
 
@@ -483,6 +485,24 @@ int luadata_reset(lunatik_object_t *object, void *ptr, ptrdiff_t offset, size_t 
 	return 0;
 }
 EXPORT_SYMBOL(luadata_reset);
+
+ssize_t luadata_getbytes(lunatik_object_t *object, void *dst, size_t offset, size_t length)
+{
+	ssize_t ret = -EINVAL;
+
+	lunatik_lock(object);
+	luadata_t *data = (luadata_t *)object->private;
+
+	if (!luadata_inbounds(data, offset, length))
+		goto unlock;
+
+	memcpy(dst, LUADATA_TOPTR(data) + offset, length);
+	ret = length;
+unlock:
+	lunatik_unlock(object);
+	return ret;
+}
+EXPORT_SYMBOL(luadata_getbytes);
 
 static int __init luadata_init(void)
 {
