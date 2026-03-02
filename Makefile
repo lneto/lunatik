@@ -65,6 +65,7 @@ scripts_install:
 	${MKDIR} ${SCRIPTS_INSTALL_PATH}/syscall
 	${MKDIR} ${SCRIPTS_INSTALL_PATH}/crypto
 	${MKDIR} ${SCRIPTS_INSTALL_PATH}/linux
+	${MKDIR} ${SCRIPTS_INSTALL_PATH}/ubus
 	${MKDIR} ${LUA_PATH}/lunatik
 	${INSTALL} -m 0644 driver.lua ${SCRIPTS_INSTALL_PATH}/
 	${INSTALL} -m 0644 lib/mailbox.lua ${SCRIPTS_INSTALL_PATH}/
@@ -75,6 +76,7 @@ scripts_install:
 	${INSTALL} -m 0644 lib/socket/*.lua ${SCRIPTS_INSTALL_PATH}/socket
 	${INSTALL} -m 0644 lib/syscall/*.lua ${SCRIPTS_INSTALL_PATH}/syscall
 	${INSTALL} -m 0644 lib/crypto/*.lua ${SCRIPTS_INSTALL_PATH}/crypto
+	${INSTALL} -m 0644 lib/ubus/*.lua ${SCRIPTS_INSTALL_PATH}/ubus
 	${INSTALL} -m 0644 autogen/linux/*.lua ${SCRIPTS_INSTALL_PATH}/linux
 	${INSTALL} -m 0644 autogen/lunatik/*.lua ${SCRIPTS_INSTALL_PATH}/lunatik
 	${LN} ${SCRIPTS_INSTALL_PATH}/lunatik/config.lua ${LUA_PATH}/lunatik/config.lua
@@ -90,6 +92,7 @@ scripts_uninstall:
 	${RM} -r ${SCRIPTS_INSTALL_PATH}/syscall
 	${RM} -r ${SCRIPTS_INSTALL_PATH}/crypto
 	${RM} -r ${SCRIPTS_INSTALL_PATH}/linux
+	${RM} -r ${SCRIPTS_INSTALL_PATH}/ubus
 	${RM} ${LUNATIK_INSTALL_PATH}/lunatik
 	${RM} -r ${LUA_PATH}/lunatik
 
