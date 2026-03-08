@@ -11,6 +11,7 @@ DIR="$(dirname "$(readlink -f "$0")")"
 FAILED=0
 
 bash "$DIR/netfilter/run.sh" || FAILED=$((FAILED+1))
+bash "$DIR/thread/run.sh"   || FAILED=$((FAILED+1))
 
 exit $FAILED
 

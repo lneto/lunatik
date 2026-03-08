@@ -29,7 +29,19 @@ sudo bash tests/netfilter/drop.sh
 sudo bash tests/netfilter/rst.sh
 sudo bash tests/netfilter/prerouting.sh
 sudo bash tests/netfilter/mark.sh
+sudo bash tests/netfilter/gc.sh
+sudo bash tests/thread/spawn.sh
 ```
+
+## Thread tests
+
+### spawn
+
+Regression test for `lunatik spawn` and graceful thread termination.
+
+1. After `lunatik spawn`, the script appears in `lunatik list`.
+2. After `lunatik stop`, the script is absent from `lunatik list`.
+3. No kernel errors (BUG, WARNING, scheduling while atomic) in dmesg.
 
 ## Netfilter tests
 
@@ -71,4 +83,14 @@ field in `nf.register`.
 2. Hook with `mark=1` is skipped for unmarked UDP to port 5561; packet is delivered.
 3. UDP to port 5560 is delivered after the hooks are unloaded.
 4. UDP to port 5561 is delivered after the hooks are unloaded.
+
+### gc
+
+Regression test for GC running under spinlock in `lunatik_monitor`
+(commit `2e841609`). A hook allocates 50 Lua tables per packet; sending
+200 packets builds GC pressure. If GC finalizers run inside the spinlock,
+the kernel reports "scheduling while atomic".
+
+1. After 200 packets through the hook, no Lua errors appear in dmesg.
+2. No "scheduling while atomic" appears in dmesg.
 
