@@ -23,9 +23,14 @@ Describes a Lunatik object class.
 - `opt`: bitmask of `LUNATIK_OPT_*` flags controlling class behaviour. Flags are inherited by
   every instance via `object->opt = opt | class->opt` (see `lunatik_newobject`). Flags differ
   in whether they act as **constraints** or **capabilities**:
-  - `LUNATIK_OPT_SOFTIRQ` *(constraint)*: all instances use a spinlock and `GFP_ATOMIC`; absence
-    means mutex and `GFP_KERNEL`. Because this flag is always inherited, a SOFTIRQ class can never
-    produce a non-SOFTIRQ instance.
+  - `LUNATIK_OPT_SOFTIRQ` *(constraint)*: all instances use a spinlock with bottom-half disabling
+    (`spin_lock_bh`) and `GFP_ATOMIC`; absence means mutex and `GFP_KERNEL`. Use for classes whose
+    handlers fire in softirq context (netfilter, XDP). Because this flag is always inherited, a
+    SOFTIRQ class can never produce a non-SOFTIRQ instance.
+  - `LUNATIK_OPT_HARDIRQ` *(constraint)*: like `SOFTIRQ` but uses `spin_lock_irqsave`, which also
+    disables hardware interrupts. Required for classes whose handlers fire in hardirq context
+    (e.g. kprobes). `lunatik_checkruntime` enforces that a HARDIRQ class can only be instantiated
+    inside a `hardirq` runtime.
   - `LUNATIK_OPT_MONITOR` *(capability)*: the class supports a monitored metatable that wraps Lua
     method calls with the object lock, enabling safe concurrent access from multiple runtimes.
     Inherited by default but cancelled when an instance is created with `LUNATIK_OPT_SINGLE`.
@@ -200,7 +205,7 @@ _lunatik\_newobject()_ allocates a new Lunatik object and pushes a userdata
 containing a pointer to the object onto the Lua stack.
 
 `object->opt` is computed as `opt | class->opt`: all class flags are inherited by the instance.
-`opt` may add flags on top (e.g. `LUNATIK_OPT_SOFTIRQ` for a non-sleepable runtime instance).
+`opt` may add flags on top (e.g. `LUNATIK_OPT_SOFTIRQ` or `LUNATIK_OPT_HARDIRQ` for a non-sleepable runtime instance).
 
 - Pass `LUNATIK_OPT_MONITOR` to wrap method calls with the object lock, enabling safe concurrent
   access from multiple runtimes.
